@@ -1,0 +1,6 @@
+# Extra URL paths that re-ddns' nginx should send to the backend (Reflex/Starlette) port instead
+# of the frontend port. One path per line; comments (#) and blank lines are ignored.
+
+# The shared notebook documents (Yjs WebSocket), a closing tab's goodbye (navigator.sendBeacon),
+# kernel completions and docs, AI suggestions, file and .ipynb downloads: see cellora/api.py.
+/_cellora/

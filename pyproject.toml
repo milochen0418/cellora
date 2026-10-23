@@ -1,0 +1,46 @@
+[tool.poetry]
+name = "cellora"
+version = "0.1.0"
+description = "A notebook for Python that people use together: Jupyter-compatible .ipynb, live co-editing with everyone's cursors, a shared kernel, AI that helps write and fix code, who is here, and Call everyone. For *.reflex-ddns.com."
+authors = ["Milo Chen"]
+license = "MIT"
+readme = "README.md"
+packages = [{include = "cellora"}]
+
+[tool.poetry.dependencies]
+# 3.11 floor: Reflex 0.10 and the re_ddns smart-launcher image (python:3.11).
+# <3.15 cap: notebooks import numpy, and numpy 2.4 (its last line for Python 3.11) has no
+# CPython 3.15 wheels.
+python = ">=3.11,<3.15"
+reflex = "0.10.0"
+# Sign-in (SSO), Call everyone (DDNS Intent call.join) and the shared `notebooks` collection;
+# Cellora also runs without it (guests, no calls, notebooks as files).
+reflex-ddns-auth = {path = "../reflex_ddns_auth", develop = true}
+# The shared document everyone edits at once (Yjs, the CRDT JupyterLab's collaboration uses).
+pycrdt = "^0.14"
+# The Python kernel and the notebook file format.
+jupyter-client = "^8.10"
+ipykernel = "^7.4"
+nbformat = "^5.10"
+# AI: Claude when ANTHROPIC_API_KEY is set, else a local model through Ollama (httpx).
+anthropic = "^2.1"
+httpx = "*"
+# Local runs read their settings from .env (see .env.template).
+python-dotenv = "^1.2"
+# What a notebook can use out of the box.
+numpy = "*"
+pandas = "*"
+matplotlib = "*"
+duckdb = "*"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+playwright = "^1.42.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
