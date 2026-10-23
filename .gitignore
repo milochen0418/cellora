@@ -25,3 +25,9 @@ venv/
 playwright_user_data/
 testcases/**/output/
 reflex.log
+
+# Documentation videos and related files
+docs/videos/Cellora-intro.en.mp4
+docs/videos/Cellora-intro.en.srt
+docs/videos/review-frames/
+docs/videos/cellora-intro.src/
