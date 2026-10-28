@@ -78,7 +78,7 @@ Browser (each person)                                   Cellora server (Reflex b
  Call everyone ── DDNS Intent call.join ──► a call app of the App Store (Avatar / Audio / Video Call)
 ```
 
-- **The cells are a shared document.** Each open notebook is a Yjs document held by the server ([pycrdt](https://github.com/y-crdt/pycrdt)); every browser keeps a copy in sync over a WebSocket (the y-websocket protocol). The server is a peer that also writes the kernel's outputs and each cell's run status into it, so they reach everyone the same way, and it saves the document as `.ipynb`.
+- **The cells are a shared document.** Each open notebook is a Yjs document held by the server ([pycrdt](https://github.com/y-crdt/pycrdt)); every browser keeps a copy in sync over a WebSocket (the y-websocket protocol). The server is a peer that also writes the kernel's outputs and each cell's run status into it, so they reach everyone the same way, and it saves the document as `.ipynb`. When the server reads a notebook from its file again (after a restart, or when nobody had it open for a while), a tab that stayed open takes the server's document instead of merging its own copy into it (which would double every cell), and brings along what it typed meanwhile.
 - **Everything else is Reflex.** The page around the cells, and the notebook's room (a `SharedState` every tab on the notebook links to): the title, the people, the kernel's state and queue, the variables, the call.
 - **The kernel is Jupyter's own** (`ipykernel` through `jupyter_client`, local sockets), so `%pip`, `%timeit`, matplotlib and every Jupyter output work. It starts in the workspace folder (the Files panel). Cellora's helpers (the table format, `%%sql`, the variables summary) are installed by `cellora/kernel_boot.py` when it starts.
 
@@ -144,6 +144,7 @@ Open `http://localhost:3000`. For AI without a key, run [Ollama](https://ollama.
 | `CELLORA_FILES_DIR` | `$CELLORA_HOME/files` | The workspace: the kernels' working folder, the Files panel. |
 | `CELLORA_MAX_KERNELS` | `6` | Kernels running at once; the one unused longest stops first. |
 | `CELLORA_KERNEL_IDLE_MINUTES` | `60` | A kernel nobody used for this long, with nobody on its notebook, stops. |
+| `CELLORA_NOTEBOOK_IDLE_MINUTES` | `10` | A notebook nobody has open for this long is saved and closed; the next person to open it reads it from its file. |
 | `CELLORA_CALL_APP` | *(chosen by the caller)* | The call app for every call (e.g. `avatar-chat`). |
 
 ## 🔒 What to know about safety
@@ -156,12 +157,12 @@ Open `http://localhost:3000`. For AI without a key, run [Ollama](https://ollama.
 ## 🧪 Tests
 
 ```bash
-poetry run pytest                              # 21 unit tests: documents, kernels, store, .ipynb, AI, context
+poetry run pytest                              # 24 unit tests: documents, kernels, store, .ipynb, AI, context
 poetry run playwright install chromium         # first time only
 poetry run ./run_test_suite.sh smoke_home      # E2E suites: see testcases/README.md
 ```
 
-Suites: `smoke_home`, `collab_live`, `run_cells`, `files_vars`, `ai_assist` (needs Claude or Ollama), `passcode` (needs `CELLORA_RUN_PASSCODE`), `call_everyone` (needs a call app; run it against re-ddns). The Claude request is checked in the unit tests against a mocked API, so no key is needed.
+Suites: `smoke_home`, `collab_live`, `run_cells`, `files_vars`, `reconnect_reload` (needs `CELLORA_NOTEBOOK_IDLE_MINUTES=0.05`), `ai_assist` (needs Claude or Ollama), `passcode` (needs `CELLORA_RUN_PASSCODE`), `call_everyone` (needs a call app; run it against re-ddns). The Claude request is checked in the unit tests against a mocked API, so no key is needed.
 
 ## 🩺 Troubleshooting
 

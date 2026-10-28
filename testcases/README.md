@@ -19,6 +19,7 @@ are not touched.
 | `collab_live` | Two people on one notebook: both see "2 here"; typing reaches the other; both typing in the same cell at once end with the same text; the other's caret and cell marker show; a run's output and "who ran it" reach both; Shift+Enter's new cell and a new text cell appear for both; following someone; a closed tab disappears for the other at once. |
 | `run_cells` | Run all stops at an error and cancels the cells after it; HTML, Markdown, LaTeX and JSON outputs; a progress bar rewriting its line; 300 000 printed lines cut at 1 MB; Stop; a crashing kernel (`os._exit`) shown as stopped, with a note in the cell, and Restart; the Variables panel. |
 | `files_vars` | Upload a CSV in the Files panel, *Use* adds a cell that reads it and runs; the file downloads; an `.ipynb` imported from the home page keeps its outputs and title. |
+| `reconnect_reload` | (Needs `CELLORA_NOTEBOOK_IDLE_MINUTES=0.05` for the server; skipped otherwise.) A tab's connection drops and it types on; the server closes the idle notebook and reads it from its file again when the tab is back: the tab takes that document (no cell doubled), what it typed meanwhile is there, a second tab sees the same, and both still see each other's typing. |
 | `ai_assist` | (Needs Claude or Ollama; skipped otherwise.) The grey suggestion while typing and Tab; ⌘I writes a cell from an instruction, shown as a diff and accepted, then runs; Fix with AI repairs a NameError; the assistant panel's answer with code, inserted as a new cell. |
 | `passcode` | (Needs `CELLORA_RUN_PASSCODE`; skipped otherwise.) Running asks for the passcode, refuses a wrong one, runs after the right one. |
 | `call_everyone` | (Needs reflex_ddns_auth and an installed call app: run it against re-ddns.) A calls everyone, B is rung and accepts, both see "Join call · 2". |
@@ -32,6 +33,7 @@ poetry run ./run_test_suite.sh smoke_home
 poetry run ./run_test_suite.sh collab_live
 poetry run ./run_test_suite.sh run_cells
 poetry run ./run_test_suite.sh files_vars
+CELLORA_NOTEBOOK_IDLE_MINUTES=0.05 poetry run ./run_test_suite.sh reconnect_reload
 poetry run ./run_test_suite.sh ai_assist
 CELLORA_RUN_PASSCODE=letmein poetry run ./run_test_suite.sh passcode
 ```

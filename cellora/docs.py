@@ -33,6 +33,13 @@ Layout of the document (``assets/cellora/notebook.jsx`` reads and writes the sam
 Awareness (who is in which cell, carets and selections) goes through the same socket; the server
 keeps the latest state of every browser so a newcomer sees everyone at once, and tells the others
 when a browser's socket closes.
+
+The document is built from the .ipynb each time the server opens the notebook (at start, and
+after the notebook was closed as idle): the same cells, but as new items of a new document. A
+browser still holding the earlier document (its tab stayed open across a restart) must not merge
+the two, or every cell would be there twice; :meth:`LiveNotebook.serve` tells it to take the
+document again instead (close code ``CLOSE_RELOAD``; ``assets/cellora/ydoc.js`` brings along what
+it typed meanwhile).
 """
 
 from __future__ import annotations
@@ -40,10 +47,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from typing import Any, Awaitable, Callable, Optional
 
-from pycrdt import Array, Awareness, Decoder, Doc, Map, Text, YMessageType, create_awareness_message, create_sync_message, create_update_message, handle_sync_message, read_message
+from pycrdt import Array, Awareness, Decoder, Doc, Map, Text, YMessageType, YSyncMessageType, create_awareness_message, create_sync_message, create_update_message, handle_sync_message, read_message
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from cellora import nbfile, viewers
@@ -55,7 +63,10 @@ log = logging.getLogger("cellora.docs")
 SAVE_DELAY = 2.0
 # A notebook nobody has had open (and whose kernel is idle) for this long is saved and dropped
 # from memory; the next person to open it reads it from its file.
-IDLE_CLOSE = 10 * 60
+IDLE_CLOSE = float(os.environ.get("CELLORA_NOTEBOOK_IDLE_MINUTES") or 10) * 60
+# The close code for a browser whose copy of the notebook comes from an earlier document than the
+# server's (see serve): it takes the document again.
+CLOSE_RELOAD = 4409
 # A browser that can't keep up (this many messages waiting for it) is disconnected; it reconnects
 # and syncs again.
 MAX_PENDING = 2000
@@ -172,6 +183,14 @@ class LiveNotebook:
                     continue
                 kind = data[0]
                 if kind == YMessageType.SYNC:
+                    if _from_another_life(data[1:], self.doc):
+                        # Its copy is of the document this notebook was before the server read
+                        # the file again (a restart, or the notebook closed as idle): the same
+                        # cells as other items, so merging would double every cell. It takes
+                        # the document again instead, bringing along what it typed meanwhile.
+                        log.info("notebook %s: a browser's copy predates this document; it reloads", self.id)
+                        await ws.close(code=CLOSE_RELOAD)
+                        break
                     self._origin = ws
                     try:
                         reply = handle_sync_message(data[1:], self.doc)
@@ -621,6 +640,31 @@ async def yjs_endpoint(ws: WebSocket) -> None:
 
 
 # ------------------------------------------------------------ helpers
+
+
+def _from_another_life(message: bytes, doc: Doc) -> bool:
+    """Whether a browser's SYNC_STEP1 ``message`` (after its type byte) tells of a copy of the
+    notebook from an earlier document than ``doc``: its state names writers, but not this
+    document's own, which wrote the cells. Such a copy was synced before the server read the
+    notebook from its file again; merging it would double every cell."""
+    if not message or message[0] != YSyncMessageType.SYNC_STEP1:
+        return False
+    try:
+        theirs = _state_vector(read_message(message[1:]))
+        mine = _state_vector(doc.get_state())
+    except Exception:
+        return False
+    return bool(theirs) and mine.get(doc.client_id, 0) > 0 and doc.client_id not in theirs
+
+
+def _state_vector(data: bytes) -> dict[int, int]:
+    """A Yjs state vector (how much a document holds of each writer): client id -> clock."""
+    decoder = Decoder(data)
+    out: dict[int, int] = {}
+    for _ in range(decoder.read_var_uint()):
+        client = decoder.read_var_uint()
+        out[client] = decoder.read_var_uint()
+    return out
 
 
 def _cell_map(cell: Any) -> Map:

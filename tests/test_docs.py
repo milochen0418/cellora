@@ -2,10 +2,10 @@
 
 import json
 
-from pycrdt import Doc, Text
+from pycrdt import Array, Doc, Text, create_sync_message
 
 from cellora import nbfile
-from cellora.docs import LiveNotebook, _apply_terminal, _replace_text
+from cellora.docs import LiveNotebook, _apply_terminal, _from_another_life, _replace_text
 from cellora.store import NotebookMeta
 
 SAMPLE = {
@@ -117,3 +117,29 @@ def test_cellora_metadata_survives_a_reload():
     again = LiveNotebook(NotebookMeta(id="abc"), nbfile.parse(nbfile.dump(live.to_ipynb())))
     saved = again.to_ipynb()["cells"][1]["metadata"]["cellora"]
     assert saved["title"] == "Totals" and saved["views"] == {"0": {"tab": "chart"}} and saved["ran_by"] == "Ann"
+
+
+def _step1(doc: Doc) -> bytes:
+    """A browser's first sync message (after its type byte), as y-websocket sends it on connect."""
+    return create_sync_message(doc)[1:]
+
+
+def test_a_copy_of_an_earlier_document_is_told_to_reload():
+    server = live_from(SAMPLE)
+    # A fresh tab holds nothing yet.
+    assert not _from_another_life(_step1(Doc()), server.doc)
+    # A tab synced with this document, also after typing on its own while disconnected.
+    tab = Doc()
+    tab.apply_update(server.doc.get_update())
+    assert not _from_another_life(_step1(tab), server.doc)
+    tab.get("cells", type=Array)[0]["source"].insert(0, "offline ")
+    assert not _from_another_life(_step1(tab), server.doc)
+    # The server read the file again (a restart): the same cells, a new document. Merging the
+    # tab's copy into it would double every cell, so the tab is told to reload.
+    again = live_from(SAMPLE)
+    assert _from_another_life(_step1(tab), again.doc)
+    # Other sync messages are never refused.
+    assert not _from_another_life(b"\x02\x00", again.doc)
+    # An empty notebook has nothing to double.
+    empty = LiveNotebook(NotebookMeta(id="e"), nbfile.parse(json.dumps({**SAMPLE, "cells": []})))
+    assert not _from_another_life(_step1(tab), empty.doc)

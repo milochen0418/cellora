@@ -37,18 +37,21 @@ function useEntry(nbId, peer) {
 function useEntryStatus(entry) {
   const [, setTick] = useState(0);
   useEffect(() => (entry ? subscribe(entry, () => setTick((x) => x + 1)) : undefined), [entry]);
-  return entry ? { synced: entry.synced, status: entry.status } : { synced: false, status: "connecting" };
+  // generation: the document was taken from the server again (ydoc.js reset); the hooks that
+  // hold parts of it (the cells, the awareness) read it again then.
+  return entry ? { synced: entry.synced, status: entry.status, generation: entry.generation } : { synced: false, status: "connecting", generation: 0 };
 }
 
-function useCells(entry) {
+function useCells(entry, generation) {
   const [cells, setCells] = useState([]);
   useEffect(() => {
     if (!entry) return undefined;
-    const read = () => setCells(entry.cells.toArray());
+    const arr = entry.cells;
+    const read = () => setCells(arr.toArray());
     read();
-    entry.cells.observe(read);
-    return () => entry.cells.unobserve(read);
-  }, [entry]);
+    arr.observe(read);
+    return () => arr.unobserve(read);
+  }, [entry, generation]);
   return cells;
 }
 
@@ -98,7 +101,7 @@ function useMonaco() {
 }
 
 /** Who else is on the notebook and in which cell (Yjs awareness): cell id -> [user]. */
-function usePresence(entry) {
+function usePresence(entry, generation) {
   const [map, setMap] = useState({ byCell: {}, all: [] });
   useEffect(() => {
     if (!entry) return undefined;
@@ -117,7 +120,7 @@ function usePresence(entry) {
     read();
     aw.on("change", read);
     return () => aw.off("change", read);
-  }, [entry]);
+  }, [entry, generation]);
   return map;
 }
 
@@ -229,6 +232,8 @@ class Boundary extends React.Component {
 
 // ------------------------------------------------------------ the editor of a cell
 
+let modelSeq = 0;
+
 const EditorBox = memo(function EditorBox({ cell, cellId, language, focusRequest }) {
   const ctx = useContext(Ctx);
   const { entry, monaco } = ctx;
@@ -245,9 +250,11 @@ const EditorBox = memo(function EditorBox({ cell, cellId, language, focusRequest
   useEffect(() => {
     if (!monaco || !near || !(ytext instanceof Y.Text) || !box.current) return undefined;
     const host = box.current;
-    const uri = monaco.Uri.parse(`cellora://${entry.nbId}/${cellId}.${language === "python" ? "py" : "md"}`);
-    const old = monaco.editor.getModel(uri);
-    if (old) old.dispose();
+    const ext = language === "python" ? "py" : "md";
+    let uri = monaco.Uri.parse(`cellora://${entry.nbId}/${cellId}.${ext}`);
+    // Another editor may hold that name (two cells with one id: a cell moved by two people at
+    // once); this one takes a name of its own rather than that editor's model.
+    if (monaco.editor.getModel(uri)) uri = monaco.Uri.parse(`cellora://${entry.nbId}/${cellId}.${++modelSeq}.${ext}`);
     const model = monaco.editor.createModel(ytext.toString(), language, uri);
     const editor = monaco.editor.create(host, {
       ...EDITOR_OPTIONS,
@@ -743,9 +750,9 @@ export function CelloraNotebook(props) {
   const { notebookId, me, labels, draft, command, kernelState, aiInline, lineNumbers, onEvent } = props;
   const entry = useEntry(notebookId, me && me.peer);
   const status = useEntryStatus(entry);
-  const cells = useCells(entry);
+  const cells = useCells(entry, status.generation);
   const monaco = useMonaco();
-  const presence = usePresence(entry);
+  const presence = usePresence(entry, status.generation);
   const [selected, setSelected] = useState(null);
   const [focusReq, setFocusReq] = useState({});
   const [mdEditing, setMdEditing] = useState({});
@@ -765,7 +772,7 @@ export function CelloraNotebook(props) {
   useEffect(() => {
     if (!entry || !me) return;
     entry.awareness.setLocalStateField("user", { name: me.name || "Guest", color: me.color || "#4F46E5", peer: me.peer || "" });
-  }, [entry, me && me.name, me && me.color, me && me.peer]);
+  }, [entry, status.generation, me && me.name, me && me.color, me && me.peer]);
 
   const announce = useCallback((cellId, editing) => {
     if (!entry) return;
@@ -1033,7 +1040,7 @@ export function CelloraNotebook(props) {
   }
   return (
     <Ctx.Provider value={ctx}>
-      <div className="cl-notebook" data-notebook={notebookId}>
+      <div className="cl-notebook" data-notebook={notebookId} data-generation={status.generation}>
         {status.status !== "connected" && (
           <div className="cl-offline"><span className="cl-spinner" /> {t(labels, "reconnecting", "Connection lost: reconnecting… Your edits are kept and sent when it is back.")}</div>
         )}
@@ -1083,18 +1090,20 @@ export function CelloraOutline({ notebookId, peer, labels }) {
     setEntry(e);
     return () => release(e);
   }, [notebookId]);
-  const cells = useCells(entry);
+  const { generation } = useEntryStatus(entry);
+  const cells = useCells(entry, generation);
   const [, setTick] = useState(0);
   useEffect(() => {
     if (!entry) return undefined;
+    const arr = entry.cells;
     let raf = 0;
     const fn = () => {
       if (raf) return;
       raf = requestAnimationFrame(() => { raf = 0; setTick((x) => x + 1); });
     };
-    entry.cells.observeDeep(fn);
-    return () => entry.cells.unobserveDeep(fn);
-  }, [entry]);
+    arr.observeDeep(fn);
+    return () => arr.unobserveDeep(fn);
+  }, [entry, generation]);
   const items = [];
   cells.forEach((cell, i) => {
     const id = cell.get("id");
