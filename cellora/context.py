@@ -7,8 +7,9 @@ from cellora import nbfile
 from cellora.docs import LiveNotebook
 
 # Characters of notebook given to the model (the cell you are on and its neighbours are kept
-# whole first; far cells get shortened).
-BUDGET = {"claude": 60_000, "ollama": 14_000}
+# whole first; far cells get shortened), by the kind of model: Claude or an OpenAI model (directly,
+# or through the AI Hub) takes a lot; a local model's context is small.
+BUDGET = {"claude": 60_000, "anthropic": 60_000, "openai": 60_000, "claude-code": 60_000, "ollama": 14_000}
 CELL_LIMIT = 4_000
 
 

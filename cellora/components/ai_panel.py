@@ -49,6 +49,7 @@ _ENTER_SENDS_JS = """
 def provider_chip() -> rx.Component:
     return rx.match(
         AIState.info["provider"],
+        ("hub", rx.el.span("AI Hub", " · ", AIState.info["model"], title=AIState.info["detail"], class_name="px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 text-[11px] font-medium truncate max-w-[14rem]")),
         ("claude", rx.el.span("Claude", title=AIState.info["detail"], class_name="px-2 py-0.5 rounded-full bg-orange-50 text-orange-700 text-[11px] font-medium")),
         ("ollama", rx.el.span(T["ai_local"], " · ", AIState.info["model"], title=AIState.info["detail"], class_name="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-medium truncate max-w-[12rem]")),
         rx.el.span(T["ai_none"], title=AIState.info["detail"], class_name="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-[11px] font-medium"),

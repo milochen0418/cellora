@@ -37,7 +37,7 @@ Built with [Reflex](https://reflex.dev/) for the [re-ddns](https://github.com/mi
 - **✨ Fix with AI** under any error, and **Explain** for what went wrong.
 - **The AI assistant** panel answers questions about the notebook (it sees the cells, their outputs and the variables); code in its answers can be inserted as a new cell or run at once. Your conversation is yours; what you insert, everyone sees.
 - **Start with AI**: describe a notebook and the AI writes it (Markdown and code cells).
-- Claude when an Anthropic API key is set; otherwise a local model through Ollama (e.g. `qwen2.5-coder:7b`), so it works with no key and nothing leaves your machine.
+- On a re_ddns host with the [AI Hub](https://github.com/milochen0418/ai_hub), the hub's models answer: which one is set on the hub's page, for every app at once, and Cellora holds no key. Elsewhere, Claude when an Anthropic API key is set; otherwise a local model through Ollama (e.g. `qwen2.5-coder:7b`), so it works with no key and nothing leaves your machine.
 
 **A smarter notebook**
 - **DataFrames as interactive tables** (like Databricks' `display()`): sort, filter, download CSV, and switch to **Chart** (bar, line, area, scatter, pie, with aggregation) without writing code; the chart choice is saved with the notebook and shared.
@@ -74,7 +74,7 @@ Browser (each person)                                   Cellora server (Reflex b
  top bar, kernel state, variables, people ◄── NotebookRoom (SharedState) ──  a run queue; outputs and
                                                                             run status go into the
  grey suggestions, completions, docs ── POST /_cellora/inline, /complete, /inspect   shared document
-                                                        ai.py: Claude (API key) or Ollama
+                                                        ai.py: the AI Hub, Claude (API key) or Ollama
  Call everyone ── DDNS Intent call.join ──► a call app of the App Store (Avatar / Audio / Video Call)
 ```
 
@@ -137,7 +137,8 @@ Open `http://localhost:3000`. For AI without a key, run [Ollama](https://ollama.
 | `CELLORA_CLAUDE_MODEL` | `claude-opus-5-5` | The Claude model (all the AI features use it; suggestions at low effort). |
 | `OLLAMA_URL` | `http://host.docker.internal:11434` in a container, else `http://localhost:11434` | Ollama, used when there is no Anthropic key. |
 | `OLLAMA_MODEL` | a pulled model with "coder" in its name, else the first | The Ollama model. |
-| `CELLORA_AI_PROVIDER` | `auto` | `claude`, `ollama` or `off`. |
+| `CELLORA_AI_PROVIDER` | `auto` | `hub`, `claude`, `ollama` or `off`; `auto` takes the AI Hub when there is one, else Claude with a key, else Ollama. |
+| `DDNS_AI_HUB_URL` | *(found through re-ddns)* | The AI Hub's backend when Cellora runs outside the platform (e.g. `http://localhost:8100`; `DDNS_AUTH_SECRET` and `SERVICE_SUBDOMAIN` as the platform sets them). |
 | `CELLORA_RUN_PASSCODE` | *(empty)* | Running code asks for it once per tab (reading and editing don't). |
 | `CELLORA_HOME` | `~/Library/Application Support/cellora` (macOS), `~/.local/share/cellora` (Linux) | Notebooks (when not in a collection), the workspace, the kernels' files. |
 | `CELLORA_FILES_DIR` | `$CELLORA_HOME/files` | The workspace: the kernels' working folder, the Files panel. |
@@ -149,7 +150,7 @@ Open `http://localhost:3000`. For AI without a key, run [Ollama](https://ollama.
 
 - **A notebook runs Python in Cellora's container**, with what the container can reach. On re-ddns that is fine on your own network; if others use it, set `CELLORA_RUN_PASSCODE`. In a dev-mode install (`dev-install`), the container also mounts your checkout read-write.
 - The kernel doesn't get the app's secrets in its environment (API keys, passcodes, `DDNS_AUTH_SECRET`), but code running as the same user can still find them in the container: treat everyone who can run code as able to read `ANTHROPIC_API_KEY`.
-- With Claude, every AI request sends the relevant part of the notebook (cells, outputs, variables) to Anthropic. With Ollama, nothing leaves your machines.
+- With Claude, every AI request sends the relevant part of the notebook (cells, outputs, variables) to Anthropic. With Ollama, nothing leaves your machines. Through the AI Hub, that depends on the model each role is set to on the hub's page.
 - HTML outputs with scripts run in a sandboxed frame without access to the page.
 
 ## 🧪 Tests
@@ -164,7 +165,7 @@ Suites: `smoke_home`, `collab_live`, `run_cells`, `files_vars`, `ai_assist` (nee
 
 ## 🩺 Troubleshooting
 
-- **The AI panel says "Not set up"**: no Anthropic key, and Ollama didn't answer or has no model. In a container Ollama is reached at `host.docker.internal:11434`; press *Check again* after `ollama pull qwen2.5-coder:7b`.
+- **The AI panel says "Not set up"**: no AI Hub (or none of its models answers the `smart` role), no Anthropic key, and Ollama didn't answer or has no model. In a container Ollama is reached at `host.docker.internal:11434`; press *Check again* after `ollama pull qwen2.5-coder:7b`.
 - **A cell waits with "Waiting for the kernel to start…"**: the first run starts the notebook's kernel (a few seconds; the first matplotlib plot of a new install builds its font cache).
 - **The kernel shows "Stopped"**: it crashed or ran out of memory; *Restart* in the toolbar.
 - **A dev-mode install restarts the server on every file change** in the checkout (screenshots under `testcases/` or `docs/` too): kernels and the notebooks' memory start over (notebooks are saved first). Keep test output outside the checkout (`OUTPUT_DIR=...`).

@@ -87,14 +87,23 @@ class AIState(rx.State):
         nb = await self.get_state(NotebookState)
         return nb.nb_id, nb.focus_cell
 
+    async def _who(self) -> str:
+        """The person asking: their account (email) when signed in, else their guest name, for
+        the AI Hub's log."""
+        from cellora.states.notebook import NotebookState
+
+        me = (await self.get_state(NotebookState)).me or {}
+        return str(me.get("email") or me.get("name") or me.get("user") or "")
+
     @staticmethod
     async def _context(nb_id: str, focus: str) -> str:
         live = DOCS.get(nb_id) or await DOCS.open(nb_id)
         if live is None:
             return ""
         session = KERNELS.get(nb_id)
-        provider = (await ai.status()).get("provider", "")
-        return context.describe(live, session.variables if session else [], focus, provider)
+        info = await ai.status()
+        # The size budget follows the kind of model: the AI Hub says which kind answers.
+        return context.describe(live, session.variables if session else [], focus, info.get("kind") or info.get("provider", ""))
 
     def _set_last(self, answer: str, status: str) -> None:
         if not self.messages:
@@ -132,13 +141,14 @@ class AIState(rx.State):
                 ChatMessage(role="assistant", status="streaming"),
             ]
             nb_id, focus = await self._where()
+            user = await self._who()
             self._job += 1
             job = self._job
         answer = ""
         try:
             notebook = await self._context(nb_id, focus)
             shown = 0.0
-            async for piece in ai.stream_chat(history, question, notebook):
+            async for piece in ai.stream_chat(history, question, notebook, user=user):
                 answer += piece
                 if time.time() - shown >= STREAM_EVERY:
                     async with self:
@@ -164,6 +174,7 @@ class AIState(rx.State):
         it raised ("fix")."""
         async with self:
             nb_id, _ = await self._where()
+            user = await self._who()
             self._draft_job += 1
             job = self._draft_job
             self.draft = {"cell": cell_id, "text": "", "status": "streaming", "error": "", "kind": kind, "seq": str(job)}
@@ -179,7 +190,7 @@ class AIState(rx.State):
         try:
             notebook = await self._context(nb_id, cell_id)
             shown = 0.0
-            async for piece in ai.stream_edit(instruction or "Write this cell.", source, cell_type, notebook, error):
+            async for piece in ai.stream_edit(instruction or "Write this cell.", source, cell_type, notebook, error, user=user):
                 answer += piece
                 if time.time() - shown >= STREAM_EVERY:
                     async with self:

@@ -98,3 +98,74 @@ def test_refusal_is_said(monkeypatch):
         return "".join([p async for p in ai._claude_stream("s", [{"role": "user", "content": "q"}], 100, "low")])
 
     assert "declined" in asyncio.run(run())
+
+
+def test_the_ai_hub_answers_first(monkeypatch):
+    """On a host with the AI Hub, its models answer: a role per feature, the person's name with
+    the question, a refusal said in words, suggestions asked whole."""
+    import types
+
+    from reflex_ddns_auth import ai as hub_lib
+
+    seen = {}
+
+    async def status(role="smart"):
+        seen["status_role"] = role
+        return {"ok": True, "model": "Claude (claude-opus-5-5)", "provider": "anthropic", "local": False}
+
+    class Reply:
+        def __init__(self, pieces, stop):
+            self.pieces, self.stop, self.model = pieces, stop, "Claude (claude-opus-5-5)"
+
+        async def __aiter__(self):
+            for p in self.pieces:
+                yield p
+
+    def stream(role, system, messages, *, max_tokens, effort, user=""):
+        seen.update(role=role, system=system, messages=messages, max_tokens=max_tokens, effort=effort, user=user)
+        return Reply(["West has ", "the most."], "end_turn") if role == "smart" else Reply([], "refusal")
+
+    async def complete(role, system, messages, *, max_tokens, effort, user=""):
+        seen.update(role=role, inline_system=system)
+        return "    return a + b"
+
+    monkeypatch.setattr(ai, "hub", types.SimpleNamespace(status=status, stream=stream, complete=complete, HubUnavailable=hub_lib.HubUnavailable))
+    monkeypatch.setattr(ai, "PROVIDER", "auto")
+    monkeypatch.setattr(ai, "_status_cache", (0.0, {}))
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    async def run():
+        info = await ai.status(refresh=True)
+        chat = "".join([p async for p in ai.stream_chat([], "Which region sells most?", "### Cell 1 (code)\nsales", user="Milo Chen")])
+        chat_ask = dict(seen)
+        edit = "".join([p async for p in ai.stream_edit("write it", "", "code", "### Cell 1")])
+        suggestion = await ai.inline("def add(a, b):\n", "", "")
+        return info, chat, chat_ask, edit, suggestion
+
+    info, chat, chat_ask, edit, suggestion = asyncio.run(run())
+    assert info == {"provider": "hub", "model": "Claude (claude-opus-5-5)", "kind": "anthropic", "detail": "The AI Hub's Claude (claude-opus-5-5)"}
+    assert seen["status_role"] == "smart"
+    assert chat == "West has the most."
+    assert chat_ask["role"] == "smart" and chat_ask["system"] == ai.SYSTEM_CHAT and chat_ask["user"] == "Milo Chen"
+    assert chat_ask["max_tokens"] == 16000 and chat_ask["effort"] == "medium"
+    assert "<notebook>" in chat_ask["messages"][-1]["content"]
+    assert "declined" in edit  # the coder role's answer was a refusal
+    assert suggestion == "    return a + b" and seen["role"] == "fast" and seen["inline_system"] == ai.SYSTEM_INLINE
+
+
+def test_without_a_hub_the_old_ways_stay(monkeypatch):
+    """No hub (or CELLORA_AI_PROVIDER=hub without one): Claude or Ollama as before, or a clear word."""
+    import types
+
+    async def status(role="smart"):
+        return None
+
+    monkeypatch.setattr(ai, "hub", types.SimpleNamespace(status=status))
+    monkeypatch.setattr(ai, "_status_cache", (0.0, {}))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(ai, "PROVIDER", "auto")
+    assert asyncio.run(ai.status(refresh=True))["provider"] == "claude"
+    monkeypatch.setattr(ai, "PROVIDER", "hub")
+    info = asyncio.run(ai.status(refresh=True))
+    assert info["provider"] == "" and "no AI Hub" in info["detail"]
+

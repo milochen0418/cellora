@@ -1,5 +1,6 @@
-"""The AI that helps in a notebook: Claude when the app has an Anthropic API key, else a local
-model through Ollama, else none (the notebook works the same without it).
+"""The AI that helps in a notebook: the AI Hub's models on a re_ddns host, else Claude when the
+app has an Anthropic API key, else a local model through Ollama, else none (the notebook works
+the same without it).
 
 What it does (the prompts are below):
 
@@ -11,10 +12,16 @@ What it does (the prompts are below):
 * ``stream_chat``: the assistant panel's answers, which know the notebook (cells, outputs,
   variables).
 
-Settings (environment): ``CELLORA_AI_PROVIDER`` = auto (default) | claude | ollama | off;
+On a re_ddns host with the AI Hub, the hub's models answer (``reflex_ddns_auth.ai``): the
+notebook asks for a role (``smart`` for the chat, ``coder`` for cells and new notebooks,
+``fast`` for suggestions), and which model answers each role is set on the hub's page, for every
+app at once; the app holds no API key. Without a hub, Claude or Ollama as above.
+
+Settings (environment): ``CELLORA_AI_PROVIDER`` = auto (default) | hub | claude | ollama | off;
 ``ANTHROPIC_API_KEY`` and ``CELLORA_CLAUDE_MODEL`` (default claude-opus-5-5); ``OLLAMA_URL``
 (default: the Docker host's Ollama in a container, localhost otherwise) and ``OLLAMA_MODEL``
-(default: a pulled model with "coder" in its name, else the first one).
+(default: a pulled model with "coder" in its name, else the first one); ``DDNS_AI_HUB_URL``
+names the hub outside the platform (on it, the hub is found through re-ddns).
 """
 
 from __future__ import annotations
@@ -29,10 +36,17 @@ from typing import AsyncIterator, Optional
 
 import httpx
 
+try:
+    from reflex_ddns_auth import ai as hub  # the AI Hub's models, on a re_ddns host
+except ImportError:  # the app runs without reflex_ddns_auth
+    hub = None
+
 log = logging.getLogger("cellora.ai")
 
 PROVIDER = (os.environ.get("CELLORA_AI_PROVIDER") or "auto").strip().lower()
 CLAUDE_MODEL = os.environ.get("CELLORA_CLAUDE_MODEL") or "claude-opus-5-5"
+# What the notebook asks the AI Hub for; which model answers each role is set on the hub's page.
+HUB_ROLES = {"chat": "smart", "edit": "coder", "notebook": "coder", "inline": "fast"}
 # Claude routes a declined request to Anthropic's recommended fallback model by itself.
 _FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
@@ -94,6 +108,15 @@ async def status(refresh: bool = False) -> dict:
 async def _find_provider() -> dict:
     if PROVIDER == "off":
         return {"provider": "", "model": "", "detail": "AI is turned off (CELLORA_AI_PROVIDER=off)."}
+    if PROVIDER in ("auto", "hub") and hub is not None:
+        found = await hub.status(HUB_ROLES["chat"])
+        if found and found.get("ok"):
+            model = str(found.get("model") or "")
+            # "kind": what sort of model answers (anthropic, ollama, openai), for the context budget.
+            return {"provider": "hub", "model": model, "kind": str(found.get("provider") or ""), "detail": f"The AI Hub's {model}"}
+        if PROVIDER == "hub":
+            why = (found or {}).get("error") or "there is no AI Hub here (outside the platform, set DDNS_AI_HUB_URL)"
+            return {"provider": "", "model": "", "detail": f"CELLORA_AI_PROVIDER is hub, but {why}"}
     if PROVIDER in ("auto", "claude") and _claude_key():
         return {"provider": "claude", "model": CLAUDE_MODEL, "detail": f"Claude ({CLAUDE_MODEL})"}
     if PROVIDER == "claude":
@@ -224,15 +247,35 @@ async def _ollama_fim(model: str, prefix: str, suffix: str) -> str:
         return str(r.json().get("response") or "")
 
 
+# ------------------------------------------------------------ the AI Hub
+
+
+async def _hub_stream(role: str, system: str, messages: list[dict], max_tokens: int, effort: str, user: str) -> AsyncIterator[str]:
+    reply = hub.stream(role, system, messages, max_tokens=max_tokens, effort=effort, user=user)
+    try:
+        async for piece in reply:
+            yield piece
+    except hub.HubUnavailable as e:
+        raise AIUnavailable(str(e)) from e
+    if reply.stop == "refusal":
+        yield "\n\n_(The model declined to answer this request.)_"
+    elif reply.stop == "max_tokens":
+        yield "\n\n_(The answer was cut off: it got too long.)_"
+
+
 # ------------------------------------------------------------ what the notebook asks
 
 
-async def stream_chat(history: list[dict], question: str, context: str) -> AsyncIterator[str]:
+async def stream_chat(history: list[dict], question: str, context: str, user: str = "") -> AsyncIterator[str]:
     """The assistant's answer to ``question``, after the earlier turns in ``history``
-    ([{"role", "content"}]), with the notebook as it is now."""
+    ([{"role", "content"}]), with the notebook as it is now; ``user`` is the person asking (for
+    the AI Hub's log)."""
     info = await status()
     messages = [*history[-12:], {"role": "user", "content": f"{question}\n\n<notebook>\n{context}\n</notebook>"}]
-    if info["provider"] == "claude":
+    if info["provider"] == "hub":
+        async for piece in _hub_stream(HUB_ROLES["chat"], SYSTEM_CHAT, messages, 16000, "medium", user):
+            yield piece
+    elif info["provider"] == "claude":
         async for piece in _claude_stream(SYSTEM_CHAT, messages, 16000, "medium"):
             yield piece
     elif info["provider"] == "ollama":
@@ -242,7 +285,7 @@ async def stream_chat(history: list[dict], question: str, context: str) -> Async
         raise AIUnavailable(info["detail"])
 
 
-async def stream_edit(instruction: str, cell_source: str, cell_type: str, context: str, error: str = "") -> AsyncIterator[str]:
+async def stream_edit(instruction: str, cell_source: str, cell_type: str, context: str, error: str = "", user: str = "") -> AsyncIterator[str]:
     """The new content of a cell, as the model writes it (with its fence; see ``code_of``)."""
     info = await status()
     parts = [f"<notebook>\n{context}\n</notebook>", f"<target_cell type=\"{cell_type}\">\n{cell_source}\n</target_cell>"]
@@ -250,7 +293,10 @@ async def stream_edit(instruction: str, cell_source: str, cell_type: str, contex
         parts.append(f"<error>\n{error}\n</error>")
     parts.append(f"<instruction>\n{instruction}\n</instruction>")
     messages = [{"role": "user", "content": "\n\n".join(parts)}]
-    if info["provider"] == "claude":
+    if info["provider"] == "hub":
+        async for piece in _hub_stream(HUB_ROLES["edit"], SYSTEM_EDIT, messages, 16000, "medium", user):
+            yield piece
+    elif info["provider"] == "claude":
         async for piece in _claude_stream(SYSTEM_EDIT, messages, 16000, "medium"):
             yield piece
     elif info["provider"] == "ollama":
@@ -260,11 +306,14 @@ async def stream_edit(instruction: str, cell_source: str, cell_type: str, contex
         raise AIUnavailable(info["detail"])
 
 
-async def stream_notebook(request: str) -> AsyncIterator[str]:
+async def stream_notebook(request: str, user: str = "") -> AsyncIterator[str]:
     """A new notebook for ``request``, as Markdown with fenced code cells."""
     info = await status()
     messages = [{"role": "user", "content": request}]
-    if info["provider"] == "claude":
+    if info["provider"] == "hub":
+        async for piece in _hub_stream(HUB_ROLES["notebook"], SYSTEM_NOTEBOOK, messages, 16000, "medium", user):
+            yield piece
+    elif info["provider"] == "claude":
         async for piece in _claude_stream(SYSTEM_NOTEBOOK, messages, 16000, "medium"):
             yield piece
     elif info["provider"] == "ollama":
@@ -281,9 +330,12 @@ async def inline(prefix: str, suffix: str, earlier: str) -> str:
         if info["provider"] == "ollama":
             head = (earlier + "\n\n") if earlier else ""
             text = await _ollama_fim(info["model"], head + prefix, suffix)
-        elif info["provider"] == "claude":
+        elif info["provider"] in ("claude", "hub"):
             prompt = (f"<earlier_cells>\n{earlier}\n</earlier_cells>\n\n" if earlier else "") + f"<cell>\n{prefix}<CURSOR>{suffix}\n</cell>"
-            text = await _claude_text(SYSTEM_INLINE, [{"role": "user", "content": prompt}], 400, "low")
+            if info["provider"] == "hub":
+                text = await hub.complete(HUB_ROLES["inline"], SYSTEM_INLINE, [{"role": "user", "content": prompt}], max_tokens=400, effort="low")
+            else:
+                text = await _claude_text(SYSTEM_INLINE, [{"role": "user", "content": prompt}], 400, "low")
         else:
             return ""
     except Exception as e:
