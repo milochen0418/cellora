@@ -58,6 +58,7 @@ with sync_playwright() as pw:
     # The assistant panel answers from the notebook and inserts its code.
     page.fill("#ai-input", "Give me one code cell that prints the type of nums.")
     page.click("#ai-send")
+    wait_for(lambda: page.input_value("#ai-input") == "", "the box emptied on send")
     wait_for(lambda: page.locator("#ai-messages .cl-spinner").count() == 0 and page.locator("#ai-messages .cl-chat-code").count() > 0, "an answer with code", 120)
     shot(page, "02_chat")
     page.locator("#ai-messages .cl-chat-code button", has_text="Insert").first.click()

@@ -170,8 +170,12 @@ def ai_panel() -> rx.Component:
                 class_name="flex-1 overflow-y-auto",
             ),
             rx.el.div(
+                # The box keeps its own text (default_value, not value): the server only listens.
+                # A server-controlled value is written back after every keystroke, which cuts off
+                # an input method (Chinese, Japanese...) in the middle of composing a word. The
+                # text comes back on a remount; AIState.ask empties the box when it sends.
                 rx.el.textarea(
-                    value=AIState.question,
+                    default_value=AIState.question,
                     on_change=AIState.set_question,
                     on_mount=rx.call_script(_ENTER_SENDS_JS),
                     placeholder=T["ai_ask_placeholder"],

@@ -144,6 +144,8 @@ class AIState(rx.State):
             user = await self._who()
             self._job += 1
             job = self._job
+        # The box keeps its own text (see the panel), so it is emptied here, not through question.
+        yield rx.set_value("ai-input", "")
         answer = ""
         try:
             notebook = await self._context(nb_id, focus)
