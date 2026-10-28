@@ -12,8 +12,13 @@ try:
     from reflex_ddns_auth.intent import install_intent_host
 except ImportError:  # a standalone Cellora, without the DDNS libraries
     install_intent_host = None
+try:
+    from reflex_ddns_auth.ai import uses as declare_ai_uses
+except ImportError:  # without the DDNS libraries, or with ones older than ai.uses
+    declare_ai_uses = None
 
 from cellora import rooms  # noqa: F401  (connects the kernels and the saving to the rooms)
+from cellora.ai import HUB_USES
 from cellora.api import api, lifespan
 from cellora.components.home import home_page
 from cellora.components.page import notebook_page
@@ -45,6 +50,10 @@ app.register_lifespan_task(lifespan)
 if install_intent_host is not None:
     install_intent_host(app)
     app.extra_app_wraps[(8, "CelloraCallKeepalive")] = lambda stateful: rx.fragment(call_keepalive())
+
+# The AI Hub's page lists what the notebook asks its models for, in these words.
+if declare_ai_uses is not None:
+    declare_ai_uses(app, **HUB_USES)
 
 _auth_on_load = [AuthState.load_auth] if AuthState is not None else []
 

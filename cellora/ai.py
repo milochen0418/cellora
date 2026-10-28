@@ -15,7 +15,9 @@ What it does (the prompts are below):
 On a re_ddns host with the AI Hub, the hub's models answer (``reflex_ddns_auth.ai``): the
 notebook asks for a role (``smart`` for the chat, ``coder`` for cells and new notebooks,
 ``fast`` for suggestions), and which model answers each role is set on the hub's page, for every
-app at once; the app holds no API key. Without a hub, Claude or Ollama as above.
+app at once; the app holds no API key. The hub's page lists these uses in the words of
+``HUB_USES``, and the AI panel's badge shows which model answers each. Without a hub, Claude or
+Ollama as above.
 
 Settings (environment): ``CELLORA_AI_PROVIDER`` = auto (default) | hub | claude | ollama | off;
 ``ANTHROPIC_API_KEY`` and ``CELLORA_CLAUDE_MODEL`` (default claude-opus-5-5); ``OLLAMA_URL``
@@ -47,6 +49,12 @@ PROVIDER = (os.environ.get("CELLORA_AI_PROVIDER") or "auto").strip().lower()
 CLAUDE_MODEL = os.environ.get("CELLORA_CLAUDE_MODEL") or "claude-opus-5-5"
 # What the notebook asks the AI Hub for; which model answers each role is set on the hub's page.
 HUB_ROLES = {"chat": "smart", "edit": "coder", "notebook": "coder", "inline": "fast"}
+# The same, as the hub's page lists it (reflex_ddns_auth.ai.uses, in cellora.cellora).
+HUB_USES = {
+    "smart": "The assistant panel's answers",
+    "coder": "Writing or fixing a cell (⌘I), and new notebooks",
+    "fast": "The grey suggestions while typing",
+}
 # Claude routes a declined request to Anthropic's recommended fallback model by itself.
 _FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
@@ -109,11 +117,19 @@ async def _find_provider() -> dict:
     if PROVIDER == "off":
         return {"provider": "", "model": "", "detail": "AI is turned off (CELLORA_AI_PROVIDER=off)."}
     if PROVIDER in ("auto", "hub") and hub is not None:
-        found = await hub.status(HUB_ROLES["chat"])
+        found, edit, inline = await asyncio.gather(*(hub.status(HUB_ROLES[use]) for use in ("chat", "edit", "inline")))
         if found and found.get("ok"):
             model = str(found.get("model") or "")
-            # "kind": what sort of model answers (anthropic, ollama, openai), for the context budget.
-            return {"provider": "hub", "model": model, "kind": str(found.get("provider") or ""), "detail": f"The AI Hub's {model}"}
+            # "kind": what sort of model answers (anthropic, ollama, openai), for the context budget;
+            # the models of the cells and the suggestions, for the badge.
+            return {
+                "provider": "hub",
+                "model": model,
+                "kind": str(found.get("provider") or ""),
+                "edit_model": _hub_model(edit),
+                "inline_model": _hub_model(inline),
+                "detail": f"The AI Hub's {model}",
+            }
         if PROVIDER == "hub":
             why = (found or {}).get("error") or "there is no AI Hub here (outside the platform, set DDNS_AI_HUB_URL)"
             return {"provider": "", "model": "", "detail": f"CELLORA_AI_PROVIDER is hub, but {why}"}
@@ -129,6 +145,11 @@ async def _find_provider() -> dict:
         "model": "",
         "detail": f"No AI found: set ANTHROPIC_API_KEY for Claude, or run Ollama ({OLLAMA_URL}) with a model pulled, e.g. ollama pull qwen2.5-coder:7b",
     }
+
+
+def _hub_model(found: Optional[dict]) -> str:
+    """The model the hub says answers a role ("—" when none does)."""
+    return str(found.get("model") or "") if found and found.get("ok") else "—"
 
 
 async def _ollama_model() -> str:

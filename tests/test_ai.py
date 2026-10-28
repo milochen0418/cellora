@@ -108,10 +108,11 @@ def test_the_ai_hub_answers_first(monkeypatch):
     from reflex_ddns_auth import ai as hub_lib
 
     seen = {}
+    models = {"smart": "Claude (claude-opus-5-5)", "coder": "Claude (claude-sonnet-5-5)", "fast": "Ollama (qwen2.5-coder:7b)"}
 
     async def status(role="smart"):
-        seen["status_role"] = role
-        return {"ok": True, "model": "Claude (claude-opus-5-5)", "provider": "anthropic", "local": False}
+        seen.setdefault("status_roles", []).append(role)
+        return {"ok": True, "model": models[role], "provider": "ollama" if role == "fast" else "anthropic", "local": role == "fast"}
 
     class Reply:
         def __init__(self, pieces, stop):
@@ -143,8 +144,18 @@ def test_the_ai_hub_answers_first(monkeypatch):
         return info, chat, chat_ask, edit, suggestion
 
     info, chat, chat_ask, edit, suggestion = asyncio.run(run())
-    assert info == {"provider": "hub", "model": "Claude (claude-opus-5-5)", "kind": "anthropic", "detail": "The AI Hub's Claude (claude-opus-5-5)"}
-    assert seen["status_role"] == "smart"
+    assert info == {
+        "provider": "hub",
+        "model": "Claude (claude-opus-5-5)",
+        "kind": "anthropic",
+        "edit_model": "Claude (claude-sonnet-5-5)",
+        "inline_model": "Ollama (qwen2.5-coder:7b)",
+        "detail": "The AI Hub's Claude (claude-opus-5-5)",
+    }
+    assert seen["status_roles"] == ["smart", "coder", "fast"]
+    assert ai._hub_model({"ok": False, "error": "nothing answers"}) == ai._hub_model(None) == "—"
+    # The hub's page lists every role the notebook asks for, in its words.
+    assert set(ai.HUB_USES) == set(ai.HUB_ROLES.values())
     assert chat == "West has the most."
     assert chat_ask["role"] == "smart" and chat_ask["system"] == ai.SYSTEM_CHAT and chat_ask["user"] == "Milo Chen"
     assert chat_ask["max_tokens"] == 16000 and chat_ask["effort"] == "medium"

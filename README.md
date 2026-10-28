@@ -37,7 +37,7 @@ Built with [Reflex](https://reflex.dev/) for the [re-ddns](https://github.com/mi
 - **✨ Fix with AI** under any error, and **Explain** for what went wrong.
 - **The AI assistant** panel answers questions about the notebook (it sees the cells, their outputs and the variables); code in its answers can be inserted as a new cell or run at once. Your conversation is yours; what you insert, everyone sees.
 - **Start with AI**: describe a notebook and the AI writes it (Markdown and code cells).
-- On a re_ddns host with the [AI Hub](https://github.com/milochen0418/ai_hub), the hub's models answer: which one is set on the hub's page, for every app at once, and Cellora holds no key. Elsewhere, Claude when an Anthropic API key is set; otherwise a local model through Ollama (e.g. `qwen2.5-coder:7b`), so it works with no key and nothing leaves your machine.
+- On a re_ddns host with the [AI Hub](https://github.com/milochen0418/ai_hub), the hub's models answer: which one is set on the hub's page, for every app at once, and Cellora holds no key. The hub's page lists Cellora's three AI uses (the assistant; ⌘I, fixes and new notebooks; the suggestions while typing) from the moment it is installed, and the AI panel's badge shows which model answers each. Elsewhere, Claude when an Anthropic API key is set; otherwise a local model through Ollama (e.g. `qwen2.5-coder:7b`), so it works with no key and nothing leaves your machine.
 
 **A smarter notebook**
 - **DataFrames as interactive tables** (like Databricks' `display()`): sort, filter, download CSV, and switch to **Chart** (bar, line, area, scatter, pie, with aggregation) without writing code; the chart choice is saved with the notebook and shared.
